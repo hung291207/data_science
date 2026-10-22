@@ -1,106 +1,187 @@
-import json
-from pathlib import Path
+import os
+import re
+from collections import Counter
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-import seaborn as sns
 from PIL import Image
-from sklearn.decomposition import PCA
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.preprocessing import StandardScaler
 
-from features import colour_histogram
+# Two categories
+CATEGORIES = ["Fiction", "Nonfiction"]
 
-DATA = Path(__file__).resolve().parents[1] / "data"
-ORDER = ["Fiction", "Nonfiction"]
+# convert the website ratings to numbers.
+RATING_MAP = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5}
+
+# common words 
+STOP_WORDS = ["the", "a", "an", "of", "and", "to", "in", "for", "on", "with",
+              "is", "from", "by", "at", "my", "your", "you", "i", "it", "or", "as"]
+
+# Create the folder for the figures if it does not exist yet.
+os.makedirs("figures", exist_ok=True)
 
 
-def analyse():
-    output = DATA / "eda"
-    output.mkdir(exist_ok=True)
-    books = pd.read_csv(DATA / "books_clean.csv", keep_default_na=False, dtype={"book_id": str})
-    split = pd.read_csv(DATA / "split_ids.csv", dtype=str)
-    train_ids = split.loc[split.split.eq("train"), "book_id"]
-    train = books.loc[books.book_id.isin(train_ids)].copy()
-    if len(train) != len(train_ids):
-        raise ValueError("Training IDs do not match cleaned data")
-    train["description_words"] = train.description.str.split().str.len()
-    sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(2, 2, figsize=(9, 7))
-    sns.countplot(data=train, x="category", order=ORDER, ax=axes[0, 0], color="steelblue")
-    axes[0, 0].set_ylabel("Books")
-    for column, label, ax in zip(
-        ["price", "rating", "description_words"],
-        ["Price (GBP)", "Rating (1–5)", "Description words"], axes.flat[1:]
-    ):
-        sns.boxplot(data=train, x="category", y=column, order=ORDER, ax=ax, color="lightblue")
-        ax.set_ylabel(label)
-    for ax in axes.flat:
-        ax.set_xlabel("")
-    fig.suptitle(f"Training set only (n={len(train)})")
-    fig.tight_layout()
-    fig.savefig(output / "training_distributions.png", dpi=160)
-    plt.close(fig)
+def load_data(path):
+    #Read CSV file  and prepare for analysis
 
-    vectorizer = CountVectorizer(stop_words="english")
-    words = vectorizer.fit_transform(train.title + " " + train.description)
-    terms = vectorizer.get_feature_names_out()
-    top_terms, class_counts = {}, {}
-    for category in ORDER:
-        counts = np.asarray(words[train.category.eq(category).to_numpy()].sum(axis=0)).ravel()
-        class_counts[category] = counts
-        share = counts / counts.sum()
-        top = np.argsort(counts)[-15:][::-1]
-        top_terms[category] = [{"term": terms[i], "count": int(counts[i]),
-                                "token_share": float(share[i])} for i in top]
-    (output / "top_terms.json").write_text(json.dumps(top_terms, indent=2), encoding="utf-8")
-    distinctive = {}
-    for category, other in (("Fiction", "Nonfiction"), ("Nonfiction", "Fiction")):
-        counts, other_counts = class_counts[category], class_counts[other]
-        difference = counts / counts.sum() - other_counts / other_counts.sum()
-        candidates = np.flatnonzero((counts + other_counts >= 3) & (difference > 0))
-        top = candidates[np.argsort(difference[candidates])[-10:][::-1]]
-        distinctive[category] = [{"term": terms[i], "token_share_difference": float(difference[i])}
-                                 for i in top]
-    (output / "distinctive_terms.json").write_text(json.dumps(distinctive, indent=2), encoding="utf-8")
+    # Read the CSV file into a table
+    df = pd.read_csv(path, encoding="utf-8-sig")
 
-    means = []
-    for path in train.image_file:
-        with Image.open(DATA / path) as image:
-            means.append(np.asarray(image.convert("RGB")).mean(axis=(0, 1)))
-    colours = pd.DataFrame(means, columns=["red", "green", "blue"], index=train.index)
-    mean_colour = colours.assign(category=train.category).groupby("category").mean()
-    mean_colour.to_csv(output / "mean_cover_colours.csv")
-    histograms = np.stack([colour_histogram(DATA / path) for path in train.image_file])
-    scaler = StandardScaler()
-    pca = PCA(n_components=2)
-    coordinates = pca.fit_transform(scaler.fit_transform(histograms))
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    mean_colour.reindex(ORDER).plot.bar(ax=axes[0], color=["#b34b4b", "#559455", "#4a6eaf"])
-    axes[0].set_ylabel("Mean channel value (0–255)")
-    axes[0].set_xlabel("")
-    axes[0].tick_params(axis="x", rotation=0)
-    for category in ORDER:
-        mask = train.category.eq(category).to_numpy()
-        axes[1].scatter(coordinates[mask, 0], coordinates[mask, 1], label=category, alpha=0.7, s=25)
-    axes[1].set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%})")
-    axes[1].set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.1%})")
-    axes[1].legend()
-    fig.suptitle("Cover features: training set only")
-    fig.tight_layout()
-    fig.savefig(output / "training_covers_pca.png", dpi=160)
-    plt.close(fig)
-    summary = {
-        "training_rows": len(train), "counts": train.category.value_counts().to_dict(),
-        "medians": train.groupby("category")[["price", "rating", "description_words"]].median().to_dict(),
-        "pca_explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
-    }
-    (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(json.dumps(summary, indent=2))
+    # Remove books that appear twice
+    rows_before = len(df)
+    df = df.drop_duplicates(subset="Link")
+    rows_after = len(df)
+    print("Removed", rows_before - rows_after, "duplicate books")
+
+    # renumber after removing duplicates since it will have gaps
+    df = df.reset_index(drop=True)
+
+    # Change the rating from words to number
+    df["Rating"] = df["Rating"].map(RATING_MAP)
+
+    #  how many characters each title has
+    df["Title Length"] = df["Title"].str.len()
+
+    return df
+
+#Print basic facts
+def basic_info(df):
+    
+
+    # Number of rows and columns
+    print("\n Shape (rows, columns)")
+    print(df.shape)
+
+    # Column names, data types and number of non-empty values
+    print("\n Column types")
+    df.info()
+
+    # Count the empty cells in every column
+    print("\n Missing value")
+    print(df.isna().sum())
+
+    # How many books are in each category, and what percentage that is
+    print("\nBooks per category")
+    total = len(df)
+    for category in CATEGORIES:
+        count = len(df[df["Category"] == category])
+        percent = count / total * 100
+        print(category, ":", count, "books (", round(percent, 1), "% )")
+
+    # All different values in Availability 
+    print("\n Values in Availability")
+    print(df["Availability"].value_counts())
+
+#Compare Price, Rating, Title Length
+def summary_by_category(df):
+    
+
+    for category in CATEGORIES:
+        # Keep only the rows of this category
+        subset = df[df["Category"] == category]
+
+        print("\n" + category)
+        # Average, middle value and spread for each of the three columns
+        for column in ["Price", "Rating", "Title Length"]:
+            mean = subset[column].mean()
+            median = subset[column].median()
+            std = subset[column].std()
+            print("  ", column, " - mean:", round(mean, 2),
+                  "median:", round(median, 2), "std:", round(std, 2))
+
+#Print the n most common words in the titles of each category.
+def common_words(df, n=10):
+    for category in CATEGORIES:
+        subset = df[df["Category"] == category]
+
+        # Collect every useful word of every title in this list
+        all_words = []
+        for title in subset["Title"]:
+            # Make lowercase, then find all words (letters only)
+            words = re.findall(r"[a-z']+", title.lower())
+            for word in words:
+                # Skip filler words like "the" and "of"
+                if word not in STOP_WORDS:
+                    all_words.append(word)
+
+        # Counter counts how many times each word appears
+        word_counts = Counter(all_words)
+        print(category, ":", word_counts.most_common(n))
+
+
+def plot_overview(df):
+    #Figure 1: three small plots next to each other.
+    #(1) books per category, (2) price per category, (3) rating per category."""
+
+    # Split the data once, so we can reuse it in the plots
+    fiction = df[df["Category"] == "Fiction"]
+    nonfiction = df[df["Category"] == "Nonfiction"]
+
+    # One figure with 3 empty plots in one row
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+
+    # Plot 1: bar chart with the number of books per category
+    counts = [len(fiction), len(nonfiction)]
+    axes[0].bar(CATEGORIES, counts)
+    axes[0].set_title("Books per category")
+    axes[0].set_ylabel("Number of books")
+
+    # Plot 2: boxplot of the prices 
+    axes[1].boxplot([fiction["Price"], nonfiction["Price"]])
+    axes[1].set_xticks([1, 2])
+    axes[1].set_xticklabels(CATEGORIES)
+    axes[1].set_title("Price per category")
+    axes[1].set_ylabel("Price")
+
+    # Plot 3: histogram of the ratings, one bar colour per category.
+    # The bins are chosen so each rating (1 to 5) gets its own group of bars.
+    rating_bins = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]
+    axes[2].hist([fiction["Rating"], nonfiction["Rating"]],
+                 bins=rating_bins, label=CATEGORIES)
+    axes[2].set_title("Rating per category")
+    axes[2].set_xlabel("Rating")
+    axes[2].set_ylabel("Number of books")
+    axes[2].legend()
+
+    # Fix the spacing and save the figure as a picture file
+    plt.tight_layout()
+    plt.savefig("figures/overview.png", dpi=150)
+    plt.close()
+
+
+def plot_samples(df, n=6):
+    #Figure 2: n random book covers from each category in a grid,
+    #so we can compare them with our own eyes."""
+
+    # One row per category, one column per book
+    fig, axes = plt.subplots(len(CATEGORIES), n, figsize=(2 * n, 3 * len(CATEGORIES)))
+
+    for row in range(len(CATEGORIES)):
+        category = CATEGORIES[row]
+        subset = df[df["Category"] == category]
+
+        # Pick n random books (random_state makes the choice the same every run)
+        sample = subset.sample(n, random_state=0)
+
+        for col in range(n):
+            # Get the image path of this book, open it and draw it
+            path = sample.iloc[col]["Thumbnail File Name"]
+            image = Image.open(path)
+            axes[row, col].imshow(image)
+            axes[row, col].axis("off")   # hide the axis numbers
+
+        # Write the category name above the first image of the row
+        axes[row, 0].set_title(category, loc="left")
+
+    plt.tight_layout()
+    plt.savefig("figures/samples.png", dpi=150)
+    plt.close()
 
 
 if __name__ == "__main__":
-    analyse()
+    df = load_data("data_sheet/books_data.csv")
+    basic_info(df)
+    summary_by_category(df)
+    common_words(df)
+    plot_overview(df)
+    plot_samples(df)
+    print("\nFigures saved in figures/")
