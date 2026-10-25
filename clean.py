@@ -4,14 +4,14 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 
-REQUIRED = ["Title", "Price", "Availability", "Rating", "Link",
+REQUIRED = ["Title", "Description", "Category", "Price", "Availability", "Rating", "Link",
             "Thumbnail URL", "Thumbnail File Name"]
 
 
 def read_file(path):
     try:
         return pd.read_csv(path, encoding="utf-8-sig", on_bad_lines="error")
-    except (FileNotFoundError, pd.errors.ParserError,
+    except (FileNotFoundError, pd.errors.ParserError, pd.errors.EmptyDataError,
             UnicodeDecodeError, OSError) as error:
         print(f"Could not read CSV: {error}")
         return None

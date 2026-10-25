@@ -111,17 +111,20 @@ def all_image_features(df):
 
 
 if __name__ == "__main__":
-    df = load_data("data_sheet/books_data.csv")
+    train = load_data("data_sheet/train.csv")
+    test = load_data("data_sheet/test.csv")
+    df = pd.concat([train, test], ignore_index=True)
 
     
     basic = basic_features(df)
     images = all_image_features(df)
 
-    # Put title, basic features and image features
-    result = pd.concat([df[["Title"]], basic, images], axis=1)
+    # Keep raw text for later text features. No vocabulary is fitted here.
+    result = pd.concat([df[["Title", "Description", "Link"]], basic, images], axis=1)
 
     # Add target: 0 = Fiction, 1 = Nonfiction
     result["label"] = df["Category"].map(LABEL_MAP)
+    result["split"] = ["train"] * len(train) + ["test"] * len(test)
 
     # Check if there are empty cells
     print("Empty cells:", result.isna().sum().sum())
