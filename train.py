@@ -1,12 +1,12 @@
-"""Compare simple book classifiers with five-fold cross-validation."""
+#try the different feature sets and see which works best
+import pandas as pd
 import os
 import numpy as np
-import pandas as pd
 from scipy.sparse import csr_matrix, hstack
 from sklearn.dummy import DummyClassifier
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
+from sklearn.metrics import balanced_accuracy_score, f1_score, accuracy_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
@@ -20,8 +20,11 @@ if __name__ == "__main__":
     print(y.value_counts())
     df["text"] = df["Title"].fillna("") + " " + df["Description"].fillna("")
 
-    feature_sets = ["baseline", "text_df1", "text_df2", "text_df3", "image", "numeric", "text+image", "all"]
-    simplicity = ["baseline", "numeric", "image", "text_df3", "text_df2", "text_df1", "text+image", "all"]
+    #different combinations of features
+    feature_sets = ["baseline", "text_df1", "text_df2", "text_df3",
+                    "image", "numeric", "text+image", "all"]
+    simplicity = ["baseline", "numeric", "image", "text_df3", "text_df2",
+                  "text_df1", "text+image", "all"]
 
     image_columns = ["mean_R", "mean_G", "mean_B"]
     for col in df.columns:
@@ -30,7 +33,7 @@ if __name__ == "__main__":
     image_columns.append("brightness")
     numeric_columns = ["price", "rating"]
 
-    # Everyone uses the same folds for a fair comparison.
+    #same split for each test
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     folds = list(cv.split(df, y))
 
@@ -49,7 +52,7 @@ if __name__ == "__main__":
             y_validation = y.iloc[validation_index]
             vocab_size = 0
 
-            # Baseline predicts the most common class.
+            #baseline just guesses the most common label
             if name == "baseline":
                 x_train = np.zeros((len(train_rows), 1))
                 x_validation = np.zeros((len(validation_rows), 1))
@@ -58,7 +61,7 @@ if __name__ == "__main__":
                 train_parts = []
                 validation_parts = []
 
-                # Text features: learn words from the training fold only.
+                #text features
                 if name in ["text_df1", "text_df2", "text_df3", "text+image", "all"]:
                     if name == "text_df1":
                         min_df = 1
@@ -74,7 +77,7 @@ if __name__ == "__main__":
                     validation_parts.append(text_validation)
                     vocab_size = len(vectorizer.vocabulary_)
 
-                # Image features: scale using the training fold only.
+                #image data
                 if name in ["image", "text+image", "all"]:
                     image_scaler = StandardScaler()
                     image_train = image_scaler.fit_transform(train_rows[image_columns])
@@ -82,7 +85,7 @@ if __name__ == "__main__":
                     train_parts.append(csr_matrix(image_train))
                     validation_parts.append(csr_matrix(image_validation))
 
-                # Numeric features: also scale using the training fold only.
+                #price and rating
                 if name in ["numeric", "all"]:
                     numeric_scaler = StandardScaler()
                     numeric_train = numeric_scaler.fit_transform(train_rows[numeric_columns])
@@ -92,7 +95,8 @@ if __name__ == "__main__":
 
                 x_train = hstack(train_parts, format="csr")
                 x_validation = hstack(validation_parts, format="csr")
-                model = LogisticRegression(class_weight="balanced", max_iter=1000, random_state=42)
+                model = LogisticRegression(class_weight="balanced", max_iter=1000,
+                                           random_state=42)
 
             vocab_sizes.append(vocab_size)
             print("Fold", fold, ":", len(train_index), "train /",
@@ -104,7 +108,7 @@ if __name__ == "__main__":
             f1_scores.append(f1_score(y_validation, prediction, average="macro"))
             accuracy_scores.append(accuracy_score(y_validation, prediction))
 
-        # average the results from the five folds
+        #get average scores
         row = {
             "feature_set": name,
             "vocab_size_mean": np.mean(vocab_sizes),
@@ -120,7 +124,7 @@ if __name__ == "__main__":
     result = pd.DataFrame(rows)
     result = result.sort_values("balanced_accuracy_mean", ascending=False)
 
-    # prefer the simplest model whose score is close enough to the best
+    #if scores are close i would rather use less features
     best = result.iloc[0]
     threshold = best["balanced_accuracy_mean"] - best["balanced_accuracy_std"]
     eligible = result[result["balanced_accuracy_mean"] >= threshold]
@@ -130,18 +134,18 @@ if __name__ == "__main__":
             break
     result["selected"] = result["feature_set"] == chosen
 
-    print("\nFeature set        Balanced accuracy   Macro-F1           Accuracy           Mean vocab")
+    print("\nCV results:")
     for _, row in result.iterrows():
-        print(f"{row['feature_set']:<18}"
-              f"{row['balanced_accuracy_mean']:.3f} +/- {row['balanced_accuracy_std']:.3f}    "
-              f"{row['macro_f1_mean']:.3f} +/- {row['macro_f1_std']:.3f}    "
-              f"{row['accuracy_mean']:.3f} +/- {row['accuracy_std']:.3f}    "
-              f"{row['vocab_size_mean']:.1f}")
+        print(row["feature_set"])
+        print(" balanced acc:", round(row["balanced_accuracy_mean"], 3),
+              "+/-", round(row["balanced_accuracy_std"], 3))
+        print(" f1:", round(row["macro_f1_mean"], 3),
+              "accuracy:", round(row["accuracy_mean"], 3))
+        print(" avg vocab:", round(row["vocab_size_mean"], 1))
 
-    print("\nHighest mean balanced accuracy:", best["feature_set"])
-    print("One-std threshold:", round(threshold, 3))
-    print("Chosen feature set:", chosen)
+    print("Best score:", best["feature_set"])
+    print("Selected:", chosen)
 
     os.makedirs("results", exist_ok=True)
     result.to_csv("results/cv_results.csv", index=False)
-    print("Saved to results/cv_results.csv")
+    print("saved results/cv_results.csv")

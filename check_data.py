@@ -1,4 +1,3 @@
-"""Check the saved book data and features with simple step-by-step tests."""
 
 import pandas as pd
 from PIL import Image
@@ -10,7 +9,6 @@ if __name__ == "__main__":
     test = pd.read_csv("data_sheet/test.csv")
     features = pd.read_csv("data_sheet/features.csv")
 
-    # Make sure the training and test files contain the right books.
     book_links = set(books["Link"])
     train_links = set(train["Link"])
     test_links = set(test["Link"])
@@ -22,7 +20,6 @@ if __name__ == "__main__":
     assert abs(len(test) - len(books) * 0.2) < 1
     assert books["Link"].is_unique
 
-    # Check that the original data is valid.
     for description in books["Description"]:
         assert pd.notna(description)
         assert str(description).strip() != ""
@@ -35,7 +32,6 @@ if __name__ == "__main__":
         test_count = (test["Category"] == category).sum()
         assert abs(test_count - total * 0.2) < 1
 
-    # Check that the features belong to the correct books.
     assert len(features) == len(books)
     assert features["Link"].is_unique
     assert features.isna().sum().sum() == 0
@@ -45,7 +41,6 @@ if __name__ == "__main__":
     assert set(feature_train["Link"]) == train_links
     assert set(feature_test["Link"]) == test_links
 
-    # Find each original book by its link, then check the saved label and text.
     book_lookup = books.set_index("Link")
     for i in range(len(features)):
         link = features.loc[i, "Link"]
@@ -62,7 +57,6 @@ if __name__ == "__main__":
         assert features.loc[i, "label"] == expected_label
         assert features.loc[i, "Description"] == description
 
-    # Finally, make sure every image can be opened.
     for path in books["Thumbnail File Name"]:
         with Image.open(path) as image:
             image.verify()

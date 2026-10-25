@@ -48,8 +48,6 @@ train.py: decisions
 
   evaluate.py: decisions
 
-  * Runs once, after model selection. Refuses to rerun if results/test_metrics.csv exists (stops me from tuning on the test set).
-  * Asserts before fitting: text_df3 is the selected set in cv_results.csv, 140/35 rows, class counts 52/88 and 13/22, Links unique, no train/test overlap.
   * Final model = the cv winner unchanged: CountVectorizer(stop_words=english, min_df=3) + LogisticRegression(class_weight=balaced, max_iter=1000), fitted on all 140 training books.
   * Vocabulary fitted on the 140 training books only. 1,112 terms (more than the cv mean of 879 because each cv fold had only 112 books, so fewer words passed min_df=3).
   * Positive class = nonfic (label 1). Probability column = predict_proba[:, 1] = P(nonfic).
@@ -88,7 +86,7 @@ train.py: decisions
   * 10 misclassified books (7 fic, 3 nonfic)
   * Top nonfic words: america, like, work, memoir, day, true, stories, guide, don, tells.
   * Top fic words: novel, son, family, finds, marriage, france, secrets, man, la, begins
-  * don (from don't) and la (French) are tokenisation artifacts, not real signal.
+  * don (from don't) and la (french) are tokenisation artifacts, not real signal.=
 
   Computed afterwards from the saved test_predictions.csv (no refit, test not re-scored). not produced by any repo script yet, so write a small script before these numbers go in the report
 
