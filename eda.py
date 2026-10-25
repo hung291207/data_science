@@ -178,7 +178,8 @@ def plot_samples(df, n=6):
 
 
 if __name__ == "__main__":
-    df = load_data("data_sheet/books_data.csv")
+    # Only explore training books. Keep the test set for final evaluation.
+    df = load_data("data_sheet/train.csv")
     basic_info(df)
     summary_by_category(df)
     common_words(df)

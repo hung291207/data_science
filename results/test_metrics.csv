@@ -1,0 +1,2 @@
+feature_set,train_books,test_books,vocab_size,balanced_accuracy,macro_f1,accuracy,roc_auc,baseline_balanced_accuracy,baseline_accuracy,cv_balanced_accuracy_mean,cv_balanced_accuracy_std,within_cv_mean_plus_minus_sd
+text_df3,140,35,1112,0.6625874125874126,0.668560606060606,0.7142857142857143,0.8566433566433566,0.5,0.6285714285714286,0.768716577540107,0.0935592661810233,False

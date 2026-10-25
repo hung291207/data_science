@@ -1,0 +1,8 @@
+              precision    recall  f1-score   support
+
+     Fiction       0.67      0.46      0.55        13
+  Nonfiction       0.73      0.86      0.79        22
+
+    accuracy                           0.71        35
+   macro avg       0.70      0.66      0.67        35
+weighted avg       0.71      0.71      0.70        35
